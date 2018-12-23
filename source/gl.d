@@ -5,11 +5,24 @@ import derelict.sfml2.window;
 import derelict.opengl;
 
 void check_GL_error() {
-	const e = glGetError();
-	if (e == GL_NO_ERROR)
-		return;
-
-	assert(0, "GL error!");
+	debug {
+		const e = glGetError();
+		switch (e) {
+		case GL_NO_ERROR: return;
+		case GL_INVALID_ENUM:
+			assert(0, "GL error: INVALID_ENUM!");
+		case GL_INVALID_VALUE:
+			assert(0, "GL error: INVALID_VALUE!");
+		case GL_INVALID_OPERATION:
+			assert(0, "GL error: INVALID_OPERATION!");
+		case GL_INVALID_FRAMEBUFFER_OPERATION:
+			assert(0, "GL error: INVALID_FRAMEBUFFER_OPERATION!");
+		case GL_OUT_OF_MEMORY:
+			assert(0, "GL error: OUT_OF_MEMORY!");
+		default:
+			assert(0, "GL error: UNKNOWN!");
+		}
+	}
 }
 
 sfWindow* create_GL_context_and_window(in sfVector2u size) {

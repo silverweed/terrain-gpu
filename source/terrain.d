@@ -6,7 +6,7 @@ import derelict.sfml2.system;
 
 struct Terrain {
 	/// Pixels per side
-	sfVector2u pixel_size;
+	sfVector2u size;
 
 	sfImage* fg;
 	sfImage* bg;
@@ -22,7 +22,7 @@ bool load_terrain_image(Terrain* terrain, const(char)* fgfile, const(char)* bgfi
 	terrain.bg = sfImage_createFromFile(bgfile);
 	if (!terrain.bg)
 		return false;
-	
+
 	terrain.fgtex = sfTexture_createFromImage(terrain.fg, null);
 	if (!terrain.fgtex)
 		return false;
@@ -31,10 +31,10 @@ bool load_terrain_image(Terrain* terrain, const(char)* fgfile, const(char)* bgfi
 	if (!terrain.bgtex)
 		return false;
 
-	terrain.pixel_size = sfImage_getSize(terrain.fg);
-	writefln("Loaded a %dx%d terrain.", terrain.pixel_size.x, terrain.pixel_size.y);
+	terrain.size = sfImage_getSize(terrain.fg);
+	writefln("Loaded a %dx%d terrain.", terrain.size.x, terrain.size.y);
 
-	assert(sfImage_getSize(terrain.fg) == sfImage_getSize(terrain.bg), 
+	assert(sfImage_getSize(terrain.fg) == sfImage_getSize(terrain.bg),
 		"Bg and Fg image have different sizes!");
 
 	return true;

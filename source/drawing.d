@@ -2,6 +2,7 @@ module drawing;
 
 import std.stdio;
 import derelict.opengl;
+import derelict.sfml2.system;
 
 import terrain;
 import shaders;
@@ -68,8 +69,54 @@ const(Quad) new_quad() {
 	return Quad(vao);
 }
 
-const(Shader) load_terrain_shader() {
-	const shader = load_shader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
+struct Vertex_Array_2D {
+	sfVector2u size;
+	uint vao;
 
-	return shader;
+	alias vao this;
+}
+
+const(Vertex_Array_2D) new_vertex_array_2D(uint nx, uint ny) {
+	uint vbo, vao;
+
+	glGenVertexArrays(1, &vao);
+	glGenBuffers(1, &vbo);
+
+	glBindVertexArray(vao);
+
+	struct Vertex {
+		float x;
+		float y;
+	}
+
+	auto vertices = new Vertex[nx * ny];
+	for (int x = 0; x < nx; ++x) {
+		for (int y = 0; y < ny; ++y) {
+			immutable i = 2 * (nx * y + x);
+			vertices[i] = Vertex(x, y);
+		}
+	}
+
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, Vertex.sizeof * vertices.length, &vertices, GL_STATIC_DRAW);
+
+	// Position
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(void*)0);
+	glEnableVertexAttribArray(0);
+
+	// Cleanup
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+
+	check_GL_error();
+
+	return Vertex_Array_2D(sfVector2u(nx, ny), vao);
+}
+
+const(Shader) load_terrain_shader() {
+	return load_shader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
+}
+
+const(Shader) load_draw_particles_shader() {
+	return load_shader("shaders/draw_particles.vert", "shaders/draw_particles.frag");
 }
