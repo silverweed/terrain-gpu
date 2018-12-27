@@ -58,6 +58,7 @@ class Simulation {
 		// asspulled from https://github.com/skeeto/webgl-particles/blob/master/js/particles.js#L15
 		immutable s = floor(cast(float) 255 * 255 / max(display_size.x, display_size.y) / 3);
 		scale = [s, s * 100];
+		debug writefln("scale = %f", scale[0]);
 		particle_positions = create_storage_texture(size);
 		particle_velocities = create_storage_texture(size);
 
@@ -66,8 +67,13 @@ class Simulation {
 }
 
 struct Encoded_Pair {
-	byte a;
-	byte b;
+	ubyte a;
+	ubyte b;
+
+	string toString() const {
+		import std.string;
+		return format!"(%d, %d)"(a, b);
+	}
 }
 
 // Particle storage encoding/decoding
@@ -77,15 +83,70 @@ auto ps_encode(in float value, in float scale) pure @nogc {
 	enum OFFSET = BASE * BASE / 2;
 	immutable v = cast(int) (value * scale + OFFSET);
 	return Encoded_Pair(
-		cast(byte) ((v % BASE) / BASE * 255),
-		cast(byte) ((v / BASE) / BASE * 255)
+		cast(ubyte) (cast(float)(v % BASE) / BASE * 255),
+		cast(ubyte) (cast(float)(v / BASE) / BASE * 255)
 	);
 }
 
 auto ps_decode(in Encoded_Pair pair, in float scale) pure @nogc {
+
 	enum BASE = 255;
 	enum OFFSET = BASE * BASE / 2;
-	return (((pair.a / 255) * BASE + (pair.b / 255) * BASE * BASE) - OFFSET) / scale;
+
+	immutable int a = cast(int)(pair.a / 255f * BASE);
+	immutable int b = cast(int)(pair.b / 255f * BASE * BASE);
+
+	return (a + b - OFFSET) / scale;
+}
+
+unittest {
+	// FIXME: several of these fail, investigate
+
+	immutable values = [
+		0, 0.1123, 1, 100, 222.22, 10000, -23.4, -999, -10000
+	];
+
+	immutable pairs = [
+		Encoded_Pair(0, 0), Encoded_Pair(12, 34), Encoded_Pair(255, 255), Encoded_Pair(0, 221),
+		Encoded_Pair(255, 0), Encoded_Pair(128, 128)
+	];
+
+	immutable scales = [
+		1, 10, 20.5, 0.55, 100, 300.33
+	];
+
+	bool pair_similar(in Encoded_Pair a, in Encoded_Pair b, float tolerance = 15.0) pure @nogc {
+		return abs(a.a - b.a) + abs(a.b - b.b) <= tolerance;
+	}
+
+	import std.string : format;
+
+	void nonfatal_assert(Args...)(bool cond, Args args) {
+		if (!cond)
+			writeln("Assertion failed: ", args);
+		else
+			writeln("Assertion OK! ", args);
+	}
+
+	foreach (scale; scales) {
+		foreach (v; values) {
+			if (v > scale) continue;
+			immutable tolerance = 0.15;
+			immutable enc = ps_encode(v, scale);
+			immutable dec = ps_decode(enc, scale);
+			immutable diff = abs(dec - v) / (v == 0 ? 1 : v);
+			nonfatal_assert(diff < tolerance,
+				format!"with scale %f: decoded: %f, expected: %f (diff %f > tolerance %f) [mid result = %s]"(
+					scale, dec, v, diff, tolerance, enc));
+		}
+		foreach (p; pairs) {
+			immutable dec = ps_decode(p, scale);
+			if (dec > scale) continue;
+			immutable e = ps_encode(dec, scale);
+			nonfatal_assert(pair_similar(e, p),
+				format!"with scale %s: encoded: %s, expected: %s"(scale, e, p));
+		}
+	}
 }
 
 void set_initial_particles_positions_and_velocities(Simulation sim)
@@ -102,23 +163,30 @@ do {
 	immutable size_x = sim.particle_positions.size.x;
 	immutable size_y = sim.particle_positions.size.y;
 
-	byte[] positions = new byte[4 * size_x * size_y];
-	byte[] velocities = new byte[4 * size_x * size_y];
+	auto positions = new ubyte[4 * size_x * size_y];
+	auto velocities = new ubyte[4 * size_x * size_y];
 
-	immutable invalid_pos_x = ps_encode(100, sim.scale[0]);
-	immutable invalid_pos_y = ps_encode(100, sim.scale[0]);
+	immutable invalid_pos_x = ps_encode(-100, sim.scale[0]);
+	immutable invalid_pos_y = ps_encode(-100, sim.scale[0]);
 
 	// Set all positions to invalid and all velocities to random
 	for (int y = 0; y < size_y; ++y) {
 		for (int x = 0; x < size_x; ++x) {
 			immutable i = 4 * (y * size_x + x);
 
-			immutable px = invalid_pos_x;
-			immutable py = invalid_pos_y;
-			positions[i + 0] = invalid_pos_x.a;
-			positions[i + 1] = invalid_pos_x.b;
-			positions[i + 2] = invalid_pos_y.a;
-			positions[i + 3] = invalid_pos_y.b;
+			//immutable px = invalid_pos_x;
+			//immutable py = invalid_pos_y;
+			//positions[i + 0] = invalid_pos_x.a;
+			//positions[i + 1] = invalid_pos_x.b;
+			//positions[i + 2] = invalid_pos_y.a;
+			//positions[i + 3] = invalid_pos_y.b;
+			immutable px = ps_encode(uniform01() * sim.display_size.x, sim.scale[0]);
+			// FIXME: something's wrong with this
+			immutable py = ps_encode(uniform01() * sim.display_size.y, sim.scale[0]);
+			positions[i + 0] = px.a;
+			positions[i + 1] = px.b;
+			positions[i + 2] = py.a;
+			positions[i + 3] = py.b;
 
 			immutable vx = ps_encode(uniform01() - 0.5, sim.scale[1]);
 			immutable vy = ps_encode(uniform01() * 2.5, sim.scale[1]);

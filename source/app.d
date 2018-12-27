@@ -71,6 +71,8 @@ void main() {
 
 	glDisable(GL_CULL_FACE);
 	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_PROGRAM_POINT_SIZE);
+	check_GL_error();
 
 	auto frame_time = new Frame_Time();
 
@@ -82,7 +84,7 @@ void main() {
 		glClearColor(0.2, 0.3, 0.3, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		draw_terrain(terrain, screen_quad, terrain_shader);
+		//draw_terrain(terrain, screen_quad, terrain_shader);
 		draw_particles(sim, particles_vertices, draw_particles_shader);
 
 		sfWindow_display(window);
@@ -170,7 +172,7 @@ void draw_particles(in Simulation sim, in Vertex_Array_2D vertex_array, in Shade
 		glBindVertexArray(vertex_array);
 		immutable n_particles = vertex_array.size.x * vertex_array.size.y;
 		debug (2) writefln("drawing %d particles", n_particles);
-		glDrawArrays(GL_TRIANGLES, 0, n_particles);
+		glDrawArrays(GL_POINTS, 0, n_particles);
 		glBindVertexArray(0);
 	}
 }
