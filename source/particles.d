@@ -19,6 +19,7 @@ struct Texture {
 
 /// Creates an empty texture with the given size, storing 4 bytes per pixel
 Texture create_storage_texture(in sfVector2u size) {
+	debug writefln("creating texture of size %d x %d", size.x, size.y);
 	uint tex_id;
 	glGenTextures(1, &tex_id);
 	check_GL_error();
@@ -30,7 +31,10 @@ Texture create_storage_texture(in sfVector2u size) {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexStorage2D(GL_TEXTURE_2D, 0, GL_RGBA, size.x, size.y);
+	glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, size.x, size.y);
+	check_GL_error();
+
+	debug writefln("created texture %d", tex_id);
 
 	return Texture(size, tex_id);
 }
@@ -54,7 +58,6 @@ class Simulation {
 		// asspulled from https://github.com/skeeto/webgl-particles/blob/master/js/particles.js#L15
 		immutable s = floor(cast(float) 255 * 255 / max(display_size.x, display_size.y) / 3);
 		scale = [s, s * 100];
-		debug writefln("creating textures of size %d x %d", size.x, size.y);
 		particle_positions = create_storage_texture(size);
 		particle_velocities = create_storage_texture(size);
 

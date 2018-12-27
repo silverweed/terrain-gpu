@@ -45,10 +45,10 @@ const(Quad) new_quad() {
 	const indices = Quad_Data.indices;
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glBufferData(GL_ARRAY_BUFFER, vertices.sizeof, &vertices, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, vertices.sizeof, vertices.ptr, GL_STATIC_DRAW);
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.sizeof, &indices, GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.sizeof, indices.ptr, GL_STATIC_DRAW);
 
 	// Position
 	alias Vertex = Quad_Data.Vertex;
@@ -76,13 +76,23 @@ struct Vertex_Array_2D {
 	alias vao this;
 }
 
-const(Vertex_Array_2D) new_vertex_array_2D(uint nx, uint ny) {
+const(Vertex_Array_2D) new_vertex_array_2D(uint nx, uint ny)
+in {
+	assert(nx > 0);
+	assert(ny > 0);
+}
+out (result) {
+	assert(result.vao > 0);
+	assert(result.size.x * result.size.y == nx * ny);
+}
+do {
 	uint vbo, vao;
 
 	glGenVertexArrays(1, &vao);
 	glGenBuffers(1, &vbo);
 
 	glBindVertexArray(vao);
+	check_GL_error();
 
 	struct Vertex {
 		float x;
@@ -92,13 +102,14 @@ const(Vertex_Array_2D) new_vertex_array_2D(uint nx, uint ny) {
 	auto vertices = new Vertex[nx * ny];
 	for (int x = 0; x < nx; ++x) {
 		for (int y = 0; y < ny; ++y) {
-			immutable i = 2 * (nx * y + x);
+			immutable i = (nx * y + x);
 			vertices[i] = Vertex(x, y);
 		}
 	}
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	glBufferData(GL_ARRAY_BUFFER, Vertex.sizeof * vertices.length, &vertices, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, Vertex.sizeof * vertices.length, vertices.ptr, GL_STATIC_DRAW);
+	check_GL_error();
 
 	// Position
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, Vertex.sizeof, cast(void*)0);
@@ -107,7 +118,6 @@ const(Vertex_Array_2D) new_vertex_array_2D(uint nx, uint ny) {
 	// Cleanup
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
-
 	check_GL_error();
 
 	return Vertex_Array_2D(sfVector2u(nx, ny), vao);

@@ -1,3 +1,5 @@
 terrain-gpu
 dub.selections.json
 .dub/
+*.swp
+*.swo

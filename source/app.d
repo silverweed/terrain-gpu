@@ -119,40 +119,58 @@ void process_input(sfWindow* window) {
 void draw_terrain(in Terrain terrain, in Quad screen_quad, in Shader shader) {
 	glUseProgram(shader);
 
-	glUniform1i(glGetUniformLocation(shader, "fgtex"), 0);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, sfTexture_getNativeHandle(terrain.fgtex));
+	{
+		glUniform1i(glGetUniformLocation(shader, "fgtex"), 0);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, sfTexture_getNativeHandle(terrain.fgtex));
+	}
 
-	glUniform1i(glGetUniformLocation(shader, "bgtex"), 1);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, sfTexture_getNativeHandle(terrain.bgtex));
+	{
+		glUniform1i(glGetUniformLocation(shader, "bgtex"), 1);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, sfTexture_getNativeHandle(terrain.bgtex));
+	}
 
-	glBindVertexArray(screen_quad);
-	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, cast(const(void)*)0);
-	glBindVertexArray(0);
+	{
+		glBindVertexArray(screen_quad);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, cast(const(void)*)0);
+		glBindVertexArray(0);
+	}
 }
 
-void draw_particles(in Simulation sim, in uint vertex_array, in Shader shader) {
+void draw_particles(in Simulation sim, in Vertex_Array_2D vertex_array, in Shader shader) {
 	glUseProgram(shader);
 
-	glUniform1i(glGetUniformLocation(shader, "positions"), 0);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, sim.particle_positions);
+	{
+		glUniform1i(glGetUniformLocation(shader, "positions"), 0);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, sim.particle_positions);
+	}
 
-	glUniform1i(glGetUniformLocation(shader, "velocities"), 1);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, sim.particle_velocities);
+	{
+		glUniform1i(glGetUniformLocation(shader, "velocities"), 1);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, sim.particle_velocities);
+	}
 
-	glUniform2ui(glGetUniformLocation(shader, "state_size"),
-		sim.particle_positions.size.x, sim.particle_positions.size.y);
-	glUniform2ui(glGetUniformLocation(shader, "display_size"), sim.display_size.x, sim.display_size.y);
-	glUniform1f(glGetUniformLocation(shader, "point_size"), 2f);
-	glUniform2f(glGetUniformLocation(shader, "scale"), sim.scale[0], sim.scale[1]);
+	{
+		immutable sim_size = sim.particle_positions.size;
+		glUniform2ui(glGetUniformLocation(shader, "state_size"), sim_size.x, sim_size.y);
+		glUniform2ui(glGetUniformLocation(shader, "display_size"), sim.display_size.x, sim.display_size.y);
+		glUniform1f(glGetUniformLocation(shader, "point_size"), 2f);
+		glUniform2f(glGetUniformLocation(shader, "scale"), sim.scale[0], sim.scale[1]);
+	}
 
-	float[4] col = [1f, 0f, 0f, 1f];
-	glUniform4f(glGetUniformLocation(shader, "color"), col[0], col[1], col[2], col[3]);
+	{
+		immutable float[4] col = [1f, 0f, 0f, 1f];
+		glUniform4f(glGetUniformLocation(shader, "color"), col[0], col[1], col[2], col[3]);
+	}
 
-	glBindVertexArray(vertex_array);
-	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, cast(const(void)*)0);
-	glBindVertexArray(0);
+	{
+		glBindVertexArray(vertex_array);
+		immutable n_particles = vertex_array.size.x * vertex_array.size.y;
+		debug (2) writefln("drawing %d particles", n_particles);
+		glDrawArrays(GL_TRIANGLES, 0, n_particles);
+		glBindVertexArray(0);
+	}
 }
