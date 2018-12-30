@@ -3,8 +3,10 @@ module particles;
 debug import std.stdio;
 import std.math;
 import std.algorithm;
+import std.string : format;
 import derelict.opengl;
 import derelict.sfml2.system;
+
 
 import gl;
 
@@ -40,9 +42,19 @@ Texture create_storage_texture(in sfVector2u size) {
 }
 
 class Simulation {
+	enum INVALID_POS = -10;
+
 	sfVector2u display_size;
 	ulong n_particles;
-	float[2] scale;
+
+	struct Encoding {
+		float min_value_pos;
+		float max_value_pos;
+		float min_value_vel;
+		float max_value_vel;
+	}
+	Encoding encoding;
+
 	/// RG -> x, BA -> y
 	Texture particle_positions;
 	/// RG -> vx, BA -> vy
@@ -55,14 +67,22 @@ class Simulation {
 
 		this.display_size = display_size;
 
-		// asspulled from https://github.com/skeeto/webgl-particles/blob/master/js/particles.js#L15
-		immutable s = floor(cast(float) 255 * 255 / max(display_size.x, display_size.y) / 3);
-		scale = [s, s * 100];
-		debug writefln("scale = %f", scale[0]);
+		encoding.min_value_pos = INVALID_POS;
+		encoding.max_value_pos = cast(float) max(display_size.x, display_size.y);
+		encoding.min_value_vel = -1000;
+		encoding.max_value_vel = -encoding.min_value_vel;
+		debug writefln("encoding:\nmin pos = %f\nmax pos = %f\nmin vel = %f\nmax vel = %f",
+			encoding.min_value_pos, encoding.max_value_pos,
+			encoding.min_value_vel, encoding.max_value_vel);
+
 		particle_positions = create_storage_texture(size);
 		particle_velocities = create_storage_texture(size);
 
 		set_initial_particles_positions_and_velocities(this);
+	}
+
+	invariant {
+		assert(encoding.min_value_pos <= INVALID_POS, "min position value should always be <= INVALID_POS!");
 	}
 }
 
@@ -76,34 +96,65 @@ struct Encoded_Pair {
 	}
 }
 
+/// Given a value `x` in range [xmin, xmax], maps it to integer range [OUTMIN, OUTMAX].
+int ps_map_to_range(int OUTMIN, int OUTMAX)(in float x, in float xmin, in float xmax) pure
+in {
+	static assert(OUTMAX > OUTMIN, "OUTMAX is <= OUTMIN!");
+	debug {
+		assert(xmax > xmin, format!"xmax (%f) is less than xmin (%f)!"(xmax, xmin));
+		assert(x >= xmin, format!"given x should be >= %f but is %f!"(xmin, x));
+		assert(x <= xmax, format!"given x should be <= %f but is %f!"(xmax, x));
+	}
+}
+out (res) {
+	debug {
+		assert(res >= OUTMIN, format!"returned value should be >= %d but is %d!"(OUTMIN, res));
+		assert(res <= OUTMAX, format!"returned value should be <= %d but is %d!"(OUTMAX, res));
+	}
+}
+do {
+	return cast(int) (OUTMAX * (x - xmin) / (xmax - xmin) + OUTMIN);
+}
+
+/// Inverse function of ps_map_to_range
+float ps_unmap_from_range(int OUTMIN, int OUTMAX)(in int x, in float xmin, in float xmax) pure
+in {
+	static assert(OUTMAX > OUTMIN);
+	debug {
+		assert(xmax > xmin, format!"xmax (%f) is less than xmin (%f)!"(xmax, xmin));
+		assert(x >= OUTMIN, format!"given x should be >= %d but is %d!"(OUTMIN, x));
+		assert(x <= OUTMAX, format!"given x should be <= %d but is %d!"(OUTMAX, x));
+	}
+}
+out (res) {
+	debug {
+		assert(res >= xmin, format!"returned value should be >= %f but is %f!"(xmin, res));
+		assert(res <= xmax, format!"returned value should be <= %f but is %f!"(xmax, res));
+	}
+}
+do {
+	immutable diff = xmax - xmin;
+	return diff / OUTMAX * (x - OUTMIN + OUTMAX * xmin / diff);
+}
+
 // Particle storage encoding/decoding
 /// Converts `value` into a (x, y) pair to be stored in RG or BA channels.
-auto ps_encode(in float value, in float scale) pure @nogc {
-	enum BASE = 255;
-	enum OFFSET = BASE * BASE / 2;
-	immutable v = cast(int) (value * scale + OFFSET);
+auto ps_encode(in float value, in float min_value, in float max_value) pure {
+	immutable v = ps_map_to_range!(0, 2^^16-1)(value, min_value, max_value);
 	return Encoded_Pair(
-		cast(ubyte) (cast(float)(v % BASE) / BASE * 255),
-		cast(ubyte) (cast(float)(v / BASE) / BASE * 255)
+		cast(byte) (v >> 8),
+		cast(byte)  v
 	);
 }
 
-auto ps_decode(in Encoded_Pair pair, in float scale) pure @nogc {
-
-	enum BASE = 255;
-	enum OFFSET = BASE * BASE / 2;
-
-	immutable int a = cast(int)(pair.a / 255f * BASE);
-	immutable int b = cast(int)(pair.b / 255f * BASE * BASE);
-
-	return (a + b - OFFSET) / scale;
+auto ps_decode(in Encoded_Pair pair, in float min_value, in float max_value) pure {
+	immutable v = (pair.a << 8) | pair.b;
+	return ps_unmap_from_range!(0, 2^^16-1)(v, min_value, max_value);
 }
 
 unittest {
-	// FIXME: several of these fail, investigate
-
 	immutable values = [
-		0, 0.1123, 1, 100, 222.22, 10000, -23.4, -999, -10000
+		0, 0.1123, 1, 100, 222.22, 1000, -10, -3.5
 	];
 
 	immutable pairs = [
@@ -111,15 +162,21 @@ unittest {
 		Encoded_Pair(255, 0), Encoded_Pair(128, 128)
 	];
 
-	immutable scales = [
-		1, 10, 20.5, 0.55, 100, 300.33
+	immutable min_values = [
+		-100, -20.4, -0.44, 0, 1, 10, 20.5, 0.55, 100, 300.33
 	];
 
-	bool pair_similar(in Encoded_Pair a, in Encoded_Pair b, float tolerance = 15.0) pure @nogc {
+	immutable max_values = [
+		10, 23.1, 0.85, 120, 540.33, 1000
+	];
+
+	bool pair_similar(in Encoded_Pair a, in Encoded_Pair b, ubyte tolerance = 1) pure @nogc {
 		return abs(a.a - b.a) + abs(a.b - b.b) <= tolerance;
 	}
 
-	import std.string : format;
+	bool val_similar(T)(in T a, in T b, float tolerance = 0.05) pure @nogc {
+		return abs(a - b) <= tolerance;
+	}
 
 	void nonfatal_assert(Args...)(bool cond, Args args) {
 		if (!cond)
@@ -128,23 +185,40 @@ unittest {
 			writeln("Assertion OK! ", args);
 	}
 
-	foreach (scale; scales) {
-		foreach (v; values) {
-			if (v > scale) continue;
-			immutable tolerance = 0.15;
-			immutable enc = ps_encode(v, scale);
-			immutable dec = ps_decode(enc, scale);
-			immutable diff = abs(dec - v) / (v == 0 ? 1 : v);
-			nonfatal_assert(diff < tolerance,
-				format!"with scale %f: decoded: %f, expected: %f (diff %f > tolerance %f) [mid result = %s]"(
-					scale, dec, v, diff, tolerance, enc));
-		}
-		foreach (p; pairs) {
-			immutable dec = ps_decode(p, scale);
-			if (dec > scale) continue;
-			immutable e = ps_encode(dec, scale);
-			nonfatal_assert(pair_similar(e, p),
-				format!"with scale %s: encoded: %s, expected: %s"(scale, e, p));
+	immutable min_pair = Encoded_Pair(0, 0);
+	immutable max_pair = Encoded_Pair(255, 255);
+
+	foreach (minv; min_values) {
+		foreach (maxv; max_values) {
+			if (maxv <= minv) continue;
+
+			// Test limits
+			immutable minp = ps_encode(minv, minv, maxv);
+			nonfatal_assert(pair_similar(minp, min_pair),
+				format!"pair %s is not similar to expected %s!"(minp, min_pair));
+
+			immutable maxp = ps_encode(maxv, minv, maxv);
+			nonfatal_assert(pair_similar(maxp, max_pair),
+				format!"pair %s is not similar to expected %s!"(maxp, max_pair));
+
+			immutable minval = ps_decode(min_pair, minv, maxv);
+			nonfatal_assert(val_similar(minval, minv),
+				format!"value %f is not similar to expected %f!"(minval, minv));
+
+			immutable maxval = ps_decode(max_pair, minv, maxv);
+			nonfatal_assert(val_similar(maxval, maxv),
+				format!"value %f is not similar to expected %f!"(maxval, maxv));
+
+			foreach (v; values) {
+				if (v < minv || v > maxv) continue;
+
+				enum tolerance = 0.05;
+				immutable enc = ps_encode(v, minv, maxv);
+				immutable dec = ps_decode(enc, minv, maxv);
+				nonfatal_assert(val_similar(dec, v, tolerance),
+					format!"with min %f / max %f: decoded: %f, expected: %f (diff %f > tolerance %f) [mid result = %s]"(
+						minv, maxv, dec, v, dec - v, tolerance, enc));
+			}
 		}
 	}
 }
@@ -166,8 +240,11 @@ do {
 	auto positions = new ubyte[4 * size_x * size_y];
 	auto velocities = new ubyte[4 * size_x * size_y];
 
-	immutable invalid_pos_x = ps_encode(-100, sim.scale[0]);
-	immutable invalid_pos_y = ps_encode(-100, sim.scale[0]);
+	immutable encode_pos = (in float x) => ps_encode(x, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
+	immutable encode_vel = (in float x) => ps_encode(x, sim.encoding.min_value_vel, sim.encoding.max_value_vel);
+
+	immutable invalid_pos_x = encode_pos(Simulation.INVALID_POS);
+	immutable invalid_pos_y = invalid_pos_x;
 
 	// Set all positions to invalid and all velocities to random
 	for (int y = 0; y < size_y; ++y) {
@@ -180,16 +257,26 @@ do {
 			//positions[i + 1] = invalid_pos_x.b;
 			//positions[i + 2] = invalid_pos_y.a;
 			//positions[i + 3] = invalid_pos_y.b;
-			immutable px = ps_encode(uniform01() * sim.display_size.x, sim.scale[0]);
-			// FIXME: something's wrong with this
-			immutable py = ps_encode(uniform01() * sim.display_size.y, sim.scale[0]);
+			//immutable px = encode_pos(uniform01() * sim.display_size.x);
+			//immutable py = encode_pos(uniform01() * sim.display_size.y);
+			immutable px = encode_pos(cast(float)x/size_x * sim.display_size.x);
+			immutable py = encode_pos(cast(float)y/size_y * sim.display_size.y);
 			positions[i + 0] = px.a;
 			positions[i + 1] = px.b;
 			positions[i + 2] = py.a;
 			positions[i + 3] = py.b;
+			//debug writeln(px, ", ", py, " -> (", positions[i+0]/255f, ",",
+				//positions[i+1]/255f, ",", positions[i+2]/255f, ",",
+				//positions[i+3]/255f,")");
+			debug {
+				immutable decx = ps_decode(px, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
+				assert(decx >= -0.05 && decx <= sim.display_size.x, format!"decoded value is %f!"(decx));
+				immutable decy = ps_decode(py, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
+				assert(decy >= -0.05 && decy <= sim.display_size.y);
+			}
 
-			immutable vx = ps_encode(uniform01() - 0.5, sim.scale[1]);
-			immutable vy = ps_encode(uniform01() * 2.5, sim.scale[1]);
+			immutable vx = encode_vel(uniform01() - 0.5);
+			immutable vy = encode_vel(uniform01() * 2.5);
 			velocities[i + 0] = vx.a;
 			velocities[i + 1] = vx.b;
 			velocities[i + 2] = vy.a;
@@ -200,8 +287,8 @@ do {
 	glBindTexture(GL_TEXTURE_2D, sim.particle_positions);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size_x, size_y, GL_RGBA, GL_UNSIGNED_BYTE, positions.ptr);
 
-	glBindTexture(GL_TEXTURE_2D, sim.particle_velocities);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size_x, size_y, GL_RGBA, GL_UNSIGNED_BYTE, velocities.ptr);
+	//glBindTexture(GL_TEXTURE_2D, sim.particle_velocities);
+	//glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size_x, size_y, GL_RGBA, GL_UNSIGNED_BYTE, velocities.ptr);
 
 	glBindTexture(GL_TEXTURE_2D, 0);
 }
