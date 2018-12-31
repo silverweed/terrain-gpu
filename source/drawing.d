@@ -93,8 +93,8 @@ do {
 	glBindVertexArray(vao);
 	check_GL_error();
 
-	auto vertices = new uint[n];
-	for (uint i = 0; i < n; ++i) {
+	auto vertices = new int[n];
+	for (int i = 0; i < n; ++i) {
 		vertices[i] = i;
 	}
 
@@ -103,7 +103,7 @@ do {
 	check_GL_error();
 
 	// Position
-	glVertexAttribPointer(0, 1, GL_UNSIGNED_INT, GL_FALSE, uint.sizeof, cast(void*)0);
+	glVertexAttribPointer(0, 1, GL_INT, GL_FALSE, int.sizeof, cast(void*)0);
 	glEnableVertexAttribArray(0);
 
 	// Cleanup
@@ -146,7 +146,7 @@ void draw_terrain(in Terrain terrain, in Quad screen_quad, in Shader shader) {
 
 	{
 		glBindVertexArray(screen_quad);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, cast(const(void)*)0);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, cast(const(void)*)0);
 		glBindVertexArray(0);
 	}
 }
@@ -201,12 +201,14 @@ void debug_draw_particles(in Simulation sim, in Vertex_Array vertex_array, in Sh
 	}
 
 	{
+		//assert_uniform_active(shader, "display_size");
+		//assert_uniform_active(shader, "state_size");
+		assert_uniform_active(shader, "pos_min");
+		assert_uniform_active(shader, "pos_max");
+
 		immutable sim_size = sim.particle_positions.size;
 		glUniform2ui(glGetUniformLocation(shader, "state_size"), sim_size.x, sim_size.y);
 		glUniform2ui(glGetUniformLocation(shader, "display_size"), sim.display_size.x, sim.display_size.y);
-		//assert(glGetUniformLocation(shader, "state_size") > 0);
-		assert(glGetUniformLocation(shader, "pos_min") > -1);
-		assert(glGetUniformLocation(shader, "pos_max") > -1);
 		glUniform1f(glGetUniformLocation(shader, "pos_min"), sim.encoding.min_value_pos);
 		glUniform1f(glGetUniformLocation(shader, "pos_max"), sim.encoding.max_value_pos);
 		check_GL_error();

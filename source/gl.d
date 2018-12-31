@@ -4,6 +4,8 @@ import derelict.sfml2.system;
 import derelict.sfml2.window;
 import derelict.opengl;
 
+import shaders;
+
 void check_GL_error() {
 	debug {
 		const e = glGetError();
@@ -38,3 +40,7 @@ sfWindow* create_GL_context_and_window(in sfVector2u size) {
 	return w;
 }
 
+void assert_uniform_active(in Shader program, in string name) {
+	import std.string: toStringz;
+	assert(glGetUniformLocation(program.id, name.toStringz()) > -1, "Uniform " ~ name ~ " is not active!");
+}

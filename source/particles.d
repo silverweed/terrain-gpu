@@ -7,7 +7,6 @@ import std.string : format;
 import derelict.opengl;
 import derelict.sfml2.system;
 
-
 import gl;
 
 struct Texture {
@@ -91,7 +90,6 @@ struct Encoded_Pair {
 	ubyte b;
 
 	string toString() const {
-		import std.string;
 		return format!"(%d, %d)"(a, b);
 	}
 }
@@ -139,7 +137,7 @@ do {
 
 // Particle storage encoding/decoding
 /// Converts `value` into a (x, y) pair to be stored in RG or BA channels.
-auto ps_encode(in float value, in float min_value, in float max_value) pure {
+Encoded_Pair ps_encode(in float value, in float min_value, in float max_value) pure {
 	immutable v = ps_map_to_range!(0, 2^^16-1)(value, min_value, max_value);
 	return Encoded_Pair(
 		cast(byte) (v >> 8),
@@ -147,9 +145,81 @@ auto ps_encode(in float value, in float min_value, in float max_value) pure {
 	);
 }
 
-auto ps_decode(in Encoded_Pair pair, in float min_value, in float max_value) pure {
+float ps_decode(in Encoded_Pair pair, in float min_value, in float max_value) pure {
 	immutable v = (pair.a << 8) | pair.b;
 	return ps_unmap_from_range!(0, 2^^16-1)(v, min_value, max_value);
+}
+
+void set_initial_particles_positions_and_velocities(Simulation sim)
+in {
+	assert(sim.particle_positions.id != Texture.INVALID_ID);
+	assert(sim.particle_velocities.id != Texture.INVALID_ID);
+	assert(sim.particle_positions.size == sim.particle_velocities.size);
+	assert(sim.display_size.x > 0);
+	assert(sim.display_size.y > 0);
+}
+do {
+	import std.random : uniform01;
+
+	immutable size_x = sim.particle_positions.size.x;
+	immutable size_y = sim.particle_positions.size.y;
+
+	auto positions = new ubyte[4 * size_x * size_y];
+	auto velocities = new ubyte[4 * size_x * size_y];
+
+	immutable encode_pos = (in float x) => ps_encode(x, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
+	immutable encode_vel = (in float x) => ps_encode(x, sim.encoding.min_value_vel, sim.encoding.max_value_vel);
+
+	immutable invalid_pos_x = encode_pos(Simulation.INVALID_POS);
+	immutable invalid_pos_y = invalid_pos_x;
+
+	// Set all positions to invalid and all velocities to random
+	for (int y = 0; y < size_y; ++y) {
+		for (int x = 0; x < size_x; ++x) {
+			immutable i = 4 * (y * size_x + x);
+
+			//immutable px = invalid_pos_x;
+			//immutable py = invalid_pos_y;
+			//positions[i + 0] = invalid_pos_x.a;
+			//positions[i + 1] = invalid_pos_x.b;
+			//positions[i + 2] = invalid_pos_y.a;
+			//positions[i + 3] = invalid_pos_y.b;
+			//immutable px = encode_pos(uniform01() * sim.display_size.x);
+			//immutable py = encode_pos(uniform01() * sim.display_size.y);
+			immutable px = encode_pos(cast(float)x/size_x * sim.display_size.x);
+			immutable py = encode_pos(cast(float)y/size_y * sim.display_size.y);
+			positions[i + 0] = px.a;
+			positions[i + 1] = px.b;
+			positions[i + 2] = py.a;
+			positions[i + 3] = py.b;
+			//debug writeln(px, ", ", py, " -> (", positions[i+0]/255f, ",",
+				//positions[i+1]/255f, ",", positions[i+2]/255f, ",",
+				//positions[i+3]/255f,")");
+			debug {
+				immutable decx = ps_decode(px, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
+				assert(decx >= -0.05 && decx <= sim.display_size.x, format!"decoded value is %f!"(decx));
+				immutable decy = ps_decode(py, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
+				assert(decy >= -0.05 && decy <= sim.display_size.y);
+			}
+
+			immutable vx = encode_vel(uniform01() - 0.5);
+			immutable vy = encode_vel(uniform01() * 2.5);
+			velocities[i + 0] = vx.a;
+			velocities[i + 1] = vx.b;
+			velocities[i + 2] = vy.a;
+			velocities[i + 3] = vy.b;
+		}
+	}
+
+	glBindTexture(GL_TEXTURE_2D, sim.particle_positions);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size_x, size_y, GL_RGBA, GL_UNSIGNED_BYTE, positions.ptr);
+
+	check_GL_error();
+
+	//glBindTexture(GL_TEXTURE_2D, sim.particle_velocities);
+	//glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size_x, size_y, GL_RGBA, GL_UNSIGNED_BYTE, velocities.ptr);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 unittest {
@@ -223,72 +293,3 @@ unittest {
 	}
 }
 
-void set_initial_particles_positions_and_velocities(Simulation sim)
-in {
-	assert(sim.particle_positions.id != Texture.INVALID_ID);
-	assert(sim.particle_velocities.id != Texture.INVALID_ID);
-	assert(sim.particle_positions.size == sim.particle_velocities.size);
-	assert(sim.display_size.x > 0);
-	assert(sim.display_size.y > 0);
-}
-do {
-	import std.random : uniform01;
-
-	immutable size_x = sim.particle_positions.size.x;
-	immutable size_y = sim.particle_positions.size.y;
-
-	auto positions = new ubyte[4 * size_x * size_y];
-	auto velocities = new ubyte[4 * size_x * size_y];
-
-	immutable encode_pos = (in float x) => ps_encode(x, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
-	immutable encode_vel = (in float x) => ps_encode(x, sim.encoding.min_value_vel, sim.encoding.max_value_vel);
-
-	immutable invalid_pos_x = encode_pos(Simulation.INVALID_POS);
-	immutable invalid_pos_y = invalid_pos_x;
-
-	// Set all positions to invalid and all velocities to random
-	for (int y = 0; y < size_y; ++y) {
-		for (int x = 0; x < size_x; ++x) {
-			immutable i = 4 * (y * size_x + x);
-
-			//immutable px = invalid_pos_x;
-			//immutable py = invalid_pos_y;
-			//positions[i + 0] = invalid_pos_x.a;
-			//positions[i + 1] = invalid_pos_x.b;
-			//positions[i + 2] = invalid_pos_y.a;
-			//positions[i + 3] = invalid_pos_y.b;
-			//immutable px = encode_pos(uniform01() * sim.display_size.x);
-			//immutable py = encode_pos(uniform01() * sim.display_size.y);
-			immutable px = encode_pos(cast(float)x/size_x * sim.display_size.x);
-			immutable py = encode_pos(cast(float)y/size_y * sim.display_size.y);
-			positions[i + 0] = px.a;
-			positions[i + 1] = px.b;
-			positions[i + 2] = py.a;
-			positions[i + 3] = py.b;
-			//debug writeln(px, ", ", py, " -> (", positions[i+0]/255f, ",",
-				//positions[i+1]/255f, ",", positions[i+2]/255f, ",",
-				//positions[i+3]/255f,")");
-			debug {
-				immutable decx = ps_decode(px, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
-				assert(decx >= -0.05 && decx <= sim.display_size.x, format!"decoded value is %f!"(decx));
-				immutable decy = ps_decode(py, sim.encoding.min_value_pos, sim.encoding.max_value_pos);
-				assert(decy >= -0.05 && decy <= sim.display_size.y);
-			}
-
-			immutable vx = encode_vel(uniform01() - 0.5);
-			immutable vy = encode_vel(uniform01() * 2.5);
-			velocities[i + 0] = vx.a;
-			velocities[i + 1] = vx.b;
-			velocities[i + 2] = vy.a;
-			velocities[i + 3] = vy.b;
-		}
-	}
-
-	glBindTexture(GL_TEXTURE_2D, sim.particle_positions);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size_x, size_y, GL_RGBA, GL_UNSIGNED_BYTE, positions.ptr);
-
-	//glBindTexture(GL_TEXTURE_2D, sim.particle_velocities);
-	//glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, size_x, size_y, GL_RGBA, GL_UNSIGNED_BYTE, velocities.ptr);
-
-	glBindTexture(GL_TEXTURE_2D, 0);
-}
